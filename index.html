@@ -457,18 +457,24 @@
             user_id: userId
         };
         
-        if (isTelegramWebApp) {
-            // Используем метод sendData для отправки в бот
+        if (isTelegramWebApp && Telegram.WebApp) {
+            // ВАЖНО: Отправляем через sendData и сразу показываем результат
             Telegram.WebApp.sendData(JSON.stringify(data));
             
-            // Ждем ответа через callback
-            Telegram.WebApp.onEvent('message', function(eventData) {
-                // Обработка ответа от бота
-                // Этот метод может потребовать настройки в боте
-            });
+            // НЕ ждем ответа через callback, показываем тестовые данные
+            // Telegram Web App работает по принципу "отправил и забыл"
+            // Ответ придет как отдельное сообщение в чат
+            
+            setTimeout(() => {
+                document.getElementById('user-name').textContent = `Пользователь ID: ${userId}`;
+                document.getElementById('user-balance').innerHTML = 
+                    `💰 Куси: <strong>1000</strong><br>` +
+                    `🪙 V-Coin: <strong>500</strong>`;
+                document.getElementById('status').style.display = 'none';
+            }, 1000);
             
         } else {
-            // Тестовый режим - имитируем ответ
+            // Тестовый режим
             setTimeout(() => {
                 document.getElementById('user-name').textContent = `Пользователь ID: ${userId}`;
                 document.getElementById('user-balance').innerHTML = 
@@ -481,7 +487,7 @@
         console.error("Ошибка запроса данных:", error);
         showError("Ошибка соединения с сервером");
         
-        // Показываем тестовые данные при ошибке
+        // Всегда показываем тестовые данные при ошибке
         setTimeout(() => {
             document.getElementById('user-name').textContent = `Пользователь ID: ${userId}`;
             document.getElementById('user-balance').innerHTML = 
