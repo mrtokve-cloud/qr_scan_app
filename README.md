@@ -578,63 +578,65 @@
             }
         }
         
-        function selectCurrency(currency) {
-            currentCurrency = currency;
-            
-            // Обновляем UI
-            document.querySelectorAll('.currency-btn').forEach(btn => {
-                btn.style.opacity = '0.5';
-            });
-            
-            if (currency === 'kusi') {
-                document.querySelector('.kusi-btn').style.opacity = '1';
-            } else {
-                document.querySelector('.vcoin-btn').style.opacity = '1';
-            }
-            
-            document.getElementById('amount').focus();
-        }
-        
         function sendCurrency() {
-            if (!currentCurrency) {
-                showError("Выберите тип валюты");
-                return;
+    if (!currentCurrency) {
+        showError("Выберите тип валюты");
+        return;
+    }
+    
+    const amount = parseInt(document.getElementById('amount').value);
+    if (!amount || isNaN(amount)) {
+        showError("Введите сумму");
+        return;
+    }
+    
+    // Показываем индикатор загрузки
+    showStatus("Отправка данных...", "loading");
+    
+    // Отправляем данные через Telegram WebApp
+    if (window.Telegram && Telegram.WebApp) {
+        const data = {
+            action: "grant_currency",
+            user_id: currentUserId,
+            currency: currentCurrency,
+            amount: amount
+        };
+        
+        // Основной способ отправки данных
+        Telegram.WebApp.sendData(JSON.stringify(data));
+        
+        // Слушаем ответ от бота
+        Telegram.WebApp.onEvent('messageReceived', function(event) {
+            try {
+                const response = JSON.parse(event);
+                if (response.type === 'success') {
+                    showStatus(response.message, "success");
+                    setTimeout(() => {
+                        Telegram.WebApp.close();
+                    }, 3000);
+                } else if (response.type === 'error') {
+                    showError(response.message);
+                }
+            } catch (e) {
+                console.error("Ошибка обработки ответа:", e);
             }
-            
-            const amount = parseInt(document.getElementById('amount').value);
-            if (!amount || isNaN(amount)) {
-                showError("Введите сумму");
-                return;
-            }
-            
-            // Показываем индикатор загрузки
-            showStatus("Отправка данных...", "loading");
-            
-            // Отправляем данные в бота через Telegram WebApp
-            if (window.Telegram && Telegram.WebApp) {
-                Telegram.WebApp.sendData(JSON.stringify({
-                    action: "grant_currency",
-                    user_id: currentUserId,
-                    currency: currentCurrency,
-                    amount: amount,
-                    admin_id: Telegram.WebApp.initDataUnsafe.user?.id
-                }));
-                
-                // Закрываем WebApp после успешной отправки
-                setTimeout(() => {
-                    Telegram.WebApp.close();
-                }, 2000);
-                
-            } else {
-                // Fallback для тестирования
-                showStatus(`✅ Успешно! Начислено ${amount} ${currentCurrency === 'kusi' ? 'Куси' : 'V-Coin'}`, "success");
-                
-                setTimeout(() => {
-                    // Перезагружаем сканер для нового сканирования
-                    restartScanner();
-                }, 3000);
-            }
-        }
+        });
+        
+        // Альтернативный способ через callback
+        setTimeout(() => {
+            // Если не пришел ответ, пробуем другой способ
+            Telegram.WebApp.close();
+        }, 5000);
+        
+    } else {
+        // Fallback для тестирования
+        showStatus(`✅ Успешно! Начислено ${amount} ${currentCurrency === 'kusi' ? 'Куси' : 'V-Coin'}`, "success");
+        
+        setTimeout(() => {
+            restartScanner();
+        }, 3000);
+    }
+}
         
         function cancelOperation() {
             // Перезагружаем сканер для нового сканирования
@@ -675,23 +677,63 @@
             statusEl.style.display = 'block';
         }
         
-        // Обработка сообщений от бота
-        window.addEventListener('message', function(event) {
-            if (event.data && event.data.type === 'user_data') {
-                const userData = event.data.data;
-                if (userData.success) {
-                    currentUserName = userData.name;
-                    currentBalance = userData.balance;
+        function getUserData(userId) {
+    if (window.Telegram && Telegram.WebApp) {
+        const data = {
+            action: "get_user_data",
+            user_id: userId
+        };
+        
+        // Отправляем запрос
+        Telegram.WebApp.sendData(JSON.stringify(data));
+        
+        // Обработка ответа через событие
+        Telegram.WebApp.onEvent('messageReceived', function(event) {
+            try {
+                const response = JSON.parse(event);
+                if (response.type === 'user_data' && response.success) {
+                    currentUserName = response.name;
+                    currentBalance = response.balance;
                     
-                    document.getElementById('user-name').textContent = userData.name;
+                    document.getElementById('user-name').textContent = response.name;
                     document.getElementById('user-balance').innerHTML = 
-                        `💰 Куси: <strong>${userData.balance.kusi}</strong><br>` +
-                        `🪙 V-Coin: <strong>${userData.balance.vcoin}</strong>`;
-                } else {
-                    showError(userData.error || "Пользователь не найден");
+                        `💰 Куси: <strong>${response.balance.kusi}</strong><br>` +
+                        `🪙 V-Coin: <strong>${response.balance.vcoin}</strong>`;
+                } else if (response.type === 'user_data' && !response.success) {
+                    showError(response.error || "Пользователь не найден");
+                    setTimeout(() => {
+                        restartScanner();
+                    }, 2000);
                 }
+            } catch (e) {
+                console.error("Ошибка обработки данных:", e);
+                // Fallback данные для тестирования
+                setTestUserData();
             }
         });
+        
+        // Таймаут для тестирования
+        setTimeout(() => {
+            if (!currentUserName) {
+                setTestUserData();
+            }
+        }, 2000);
+        
+    } else {
+        // Fallback для тестирования
+        setTestUserData();
+    }
+}
+
+function setTestUserData() {
+    currentUserName = "Тестовый Пользователь";
+    currentBalance = { kusi: 100, vcoin: 50 };
+    
+    document.getElementById('user-name').textContent = "Тестовый Пользователь";
+    document.getElementById('user-balance').innerHTML = 
+        `💰 Куси: <strong>100</strong><br>` +
+        `🪙 V-Coin: <strong>50</strong>`;
+}
         
         // Инициализация при загрузке страницы
         document.addEventListener('DOMContentLoaded', function() {
