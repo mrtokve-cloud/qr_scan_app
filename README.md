@@ -1,16 +1,4 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Сканер QR-кодов</title>
-    <script src="https://unpkg.com/html5-qrcode"></script>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+    <title>Сканер QR-кодов Vampurrr Tower Only</title>
         
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -42,17 +30,53 @@
         }
         
         .subtitle {
-            margin-bottom: 25px;
+            margin-bottom: 15px;
             color: rgba(255, 255, 255, 0.8);
             font-size: 16px;
         }
         
+        #camera-selector {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 10px;
+        }
+        
+        #camera-select {
+            width: 100%;
+            padding: 10px;
+            border-radius: 8px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            background: rgba(0, 0, 0, 0.3);
+            color: white;
+            font-size: 14px;
+            margin-top: 8px;
+        }
+        
+        #camera-select option {
+            background: #333;
+            color: white;
+        }
+        
         #qr-reader {
             width: 100%;
-            margin: 20px 0;
+            margin: 15px 0;
             border-radius: 15px;
             overflow: hidden;
             background: black;
+            min-height: 300px;
+            position: relative;
+        }
+        
+        .camera-placeholder {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 300px;
+            background: rgba(0, 0, 0, 0.5);
+            color: rgba(255, 255, 255, 0.7);
+            border-radius: 15px;
+            font-size: 18px;
         }
         
         .instructions {
@@ -188,6 +212,11 @@
             display: block;
         }
         
+        .status.loading {
+            background: rgba(52, 152, 219, 0.3);
+            display: block;
+        }
+        
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
@@ -207,6 +236,28 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        
+        .camera-switch-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            font-size: 20px;
+            cursor: pointer;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .camera-switch-btn:hover {
+            background: rgba(0, 0, 0, 0.9);
+        }
     </style>
 </head>
 <body>
@@ -214,7 +265,17 @@
         <h1>📷 Сканер QR-кодов</h1>
         <p class="subtitle">Наведите камеру на QR-код пользователя</p>
         
-        <div id="qr-reader"></div>
+        <div id="camera-selector" style="display: none;">
+            <label for="camera-select">Выберите камеру:</label>
+            <select id="camera-select"></select>
+        </div>
+        
+        <div id="qr-reader">
+            <div class="camera-placeholder" id="camera-placeholder">
+                <div>Инициализация камеры...</div>
+            </div>
+            <button class="camera-switch-btn" id="switch-camera" title="Переключить камеру" style="display: none;">🔄</button>
+        </div>
         
         <div class="instructions">
             <h3>📋 Как использовать:</h3>
@@ -223,6 +284,7 @@
                 <li>Наведите камеру на QR-код</li>
                 <li>Держите телефон устойчиво</li>
                 <li>Дождитесь автоматического сканирования</li>
+                <li>Используйте кнопку 🔄 для переключения камеры</li>
             </ul>
         </div>
         
@@ -257,9 +319,10 @@
         let currentCurrency = null;
         let currentUserName = null;
         let currentBalance = null;
-        
-        // Инициализация сканера QR-кодов
-        const html5QrCode = new Html5Qrcode("qr-reader");
+        let availableCameras = [];
+        let currentCameraIndex = 0;
+        let html5QrCode = null;
+        let isCameraSwitching = false;
         
         const qrConfig = { 
             fps: 10,
@@ -268,25 +331,180 @@
             disableFlip: false
         };
         
-        // Начинаем сканирование при загрузке страницы
-        Html5Qrcode.getCameras().then(cameras => {
-            if (cameras && cameras.length) {
-                const cameraId = cameras[0].id; // Используем заднюю камеру
+        // Инициализация камер
+        function initCameras() {
+            Html5Qrcode.getCameras().then(cameras => {
+                if (cameras && cameras.length) {
+                    availableCameras = cameras;
+                    updateCameraSelector(cameras);
+                    
+                    // Пытаемся найти и использовать заднюю камеру
+                    const backCameraIndex = findBackCameraIndex(cameras);
+                    
+                    if (backCameraIndex >= 0) {
+                        currentCameraIndex = backCameraIndex;
+                        startCamera(cameras[backCameraIndex].id);
+                    } else {
+                        // Используем первую камеру
+                        startCamera(cameras[0].id);
+                    }
+                    
+                    // Показываем кнопку переключения камеры, если камер больше одной
+                    if (cameras.length > 1) {
+                        document.getElementById('switch-camera').style.display = 'flex';
+                    }
+                    
+                } else {
+                    showError("Камеры не найдены");
+                }
+            }).catch(err => {
+                console.error("Ошибка доступа к камерам: ", err);
+                showError("Ошибка доступа к камерам: " + err.message);
+            });
+        }
+        
+        // Поиск задней камеры
+        function findBackCameraIndex(cameras) {
+            for (let i = 0; i < cameras.length; i++) {
+                const camera = cameras[i];
+                const label = camera.label ? camera.label.toLowerCase() : '';
                 
-                html5QrCode.start(
-                    cameraId,
-                    qrConfig,
-                    onScanSuccess,
-                    onScanFailure
-                ).catch(err => {
-                    showError("Не удалось запустить камеру: " + err);
-                });
-            } else {
-                showError("Камера не найдена");
+                // Ищем по ключевым словам
+                if (label.includes('back') || 
+                    label.includes('rear') || 
+                    label.includes('environment') ||
+                    label.includes('задняя') ||
+                    (camera.facingMode && camera.facingMode === 'environment')) {
+                    return i;
+                }
             }
-        }).catch(err => {
-            showError("Ошибка доступа к камере: " + err);
-        });
+            
+            // Если не нашли по меткам, но есть несколько камер,
+            // предполагаем что задняя - вторая (индекс 1) или последняя
+            if (cameras.length > 1) {
+                return cameras.length - 1;
+            }
+            
+            return -1; // Не найдена
+        }
+        
+        // Обновление селектора камер
+        function updateCameraSelector(cameras) {
+            const selector = document.getElementById('camera-selector');
+            const select = document.getElementById('camera-select');
+            
+            if (cameras.length > 1) {
+                selector.style.display = 'block';
+                select.innerHTML = '';
+                
+                cameras.forEach((camera, index) => {
+                    const option = document.createElement('option');
+                    option.value = camera.id;
+                    let label = camera.label || `Камера ${index + 1}`;
+                    
+                    // Добавляем пометки для удобства
+                    if (index === findBackCameraIndex(cameras)) {
+                        label += " (Задняя)";
+                    } else if (label.toLowerCase().includes('front') || 
+                               (camera.facingMode && camera.facingMode === 'user')) {
+                        label += " (Фронтальная)";
+                    }
+                    
+                    option.textContent = label;
+                    select.appendChild(option);
+                });
+                
+                // Обработчик изменения выбора
+                select.addEventListener('change', function() {
+                    if (!isCameraSwitching) {
+                        switchCameraById(this.value);
+                    }
+                });
+            }
+        }
+        
+        // Запуск камеры
+        function startCamera(cameraId) {
+            // Удаляем старый сканер если он есть
+            if (html5QrCode && html5QrCode.isScanning) {
+                html5QrCode.stop().catch(console.error);
+            }
+            
+            // Создаем новый сканер
+            html5QrCode = new Html5Qrcode("qr-reader");
+            
+            // Скрываем плейсхолдер
+            document.getElementById('camera-placeholder').style.display = 'none';
+            
+            // Обновляем селектор
+            const select = document.getElementById('camera-select');
+            if (select) {
+                for (let i = 0; i < select.options.length; i++) {
+                    if (select.options[i].value === cameraId) {
+                        select.selectedIndex = i;
+                        currentCameraIndex = i;
+                        break;
+                    }
+                }
+            }
+            
+            // Запускаем камеру
+            html5QrCode.start(
+                cameraId,
+                qrConfig,
+                onScanSuccess,
+                onScanFailure
+            ).then(() => {
+                console.log("Камера успешно запущена");
+            }).catch(err => {
+                console.error("Ошибка запуска камеры: ", err);
+                
+                // Пробуем следующую камеру если текущая не работает
+                if (availableCameras.length > 1) {
+                    const nextIndex = (currentCameraIndex + 1) % availableCameras.length;
+                    if (nextIndex !== currentCameraIndex) {
+                        showError(`Камера не работает, пробуем другую...`);
+                        setTimeout(() => {
+                            switchCamera(nextIndex);
+                        }, 1000);
+                    }
+                } else {
+                    showError("Не удалось запустить камеру: " + err.message);
+                }
+            });
+        }
+        
+        // Переключение камеры по индексу
+        function switchCamera(index) {
+            if (index >= 0 && index < availableCameras.length && !isCameraSwitching) {
+                isCameraSwitching = true;
+                currentCameraIndex = index;
+                startCamera(availableCameras[index].id);
+                
+                // Сбрасываем флаг через небольшую задержку
+                setTimeout(() => {
+                    isCameraSwitching = false;
+                }, 500);
+            }
+        }
+        
+        // Переключение камеры по ID
+        function switchCameraById(cameraId) {
+            for (let i = 0; i < availableCameras.length; i++) {
+                if (availableCameras[i].id === cameraId) {
+                    switchCamera(i);
+                    return;
+                }
+            }
+        }
+        
+        // Переключение на следующую камеру
+        function switchToNextCamera() {
+            if (availableCameras.length > 1 && !isCameraSwitching) {
+                const nextIndex = (currentCameraIndex + 1) % availableCameras.length;
+                switchCamera(nextIndex);
+            }
+        }
         
         function onScanSuccess(decodedText, decodedResult) {
             // Останавливаем сканер после успешного сканирования
@@ -307,7 +525,7 @@
                 } else {
                     showError("Это не QR-код нашего бота");
                     setTimeout(() => {
-                        location.reload();
+                        restartScanner();
                     }, 2000);
                 }
             }).catch(err => {
@@ -316,7 +534,7 @@
         }
         
         function onScanFailure(error) {
-            // Ошибки игнорируем - сканер продолжает работать
+            // Ошибки сканирования игнорируем - сканер продолжает работать
         }
         
         function getUserData(userId) {
@@ -413,14 +631,30 @@
                 
                 setTimeout(() => {
                     // Перезагружаем сканер для нового сканирования
-                    location.reload();
+                    restartScanner();
                 }, 3000);
             }
         }
         
         function cancelOperation() {
-            // Перезагружаем страницу для нового сканирования
-            location.reload();
+            // Перезагружаем сканер для нового сканирования
+            restartScanner();
+        }
+        
+        function restartScanner() {
+            // Скрываем результат
+            document.getElementById('result').classList.remove('active');
+            
+            // Сбрасываем значения
+            currentUserId = null;
+            currentCurrency = null;
+            document.getElementById('amount').value = '';
+            document.getElementById('status').style.display = 'none';
+            
+            // Перезапускаем камеру
+            if (availableCameras.length > 0) {
+                startCamera(availableCameras[currentCameraIndex].id);
+            }
         }
         
         function showStatus(message, type) {
@@ -428,11 +662,15 @@
             statusEl.textContent = message;
             statusEl.className = 'status ' + type;
             statusEl.style.display = 'block';
+            
+            if (type === 'loading') {
+                statusEl.innerHTML = `<div class="loader"></div><div>${message}</div>`;
+            }
         }
         
         function showError(message) {
             const statusEl = document.getElementById('status');
-            statusEl.innerHTML = `❌ ${message}<br><button onclick="location.reload()" style="margin-top: 10px; padding: 8px 15px; background: white; border: none; border-radius: 5px; cursor: pointer;">Попробовать снова</button>`;
+            statusEl.innerHTML = `❌ ${message}<br><button onclick="restartScanner()" style="margin-top: 10px; padding: 8px 15px; background: white; border: none; border-radius: 5px; cursor: pointer; color: #333;">Попробовать снова</button>`;
             statusEl.className = 'status error';
             statusEl.style.display = 'block';
         }
@@ -453,6 +691,37 @@
                     showError(userData.error || "Пользователь не найден");
                 }
             }
+        });
+        
+        // Инициализация при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            // Назначаем обработчик для кнопки переключения камеры
+            document.getElementById('switch-camera').addEventListener('click', switchToNextCamera);
+            
+            // Запрашиваем разрешение на камеру и инициализируем
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ video: true })
+                    .then(() => {
+                        // Разрешение получено, инициализируем камеры
+                        initCameras();
+                    })
+                    .catch(err => {
+                        showError("Требуется разрешение на использование камеры: " + err.message);
+                        document.getElementById('camera-placeholder').textContent = "Требуется разрешение на камеру";
+                    });
+            } else {
+                showError("Ваш браузер не поддерживает доступ к камере");
+            }
+        });
+        
+        // Обработчик изменения ориентации устройства
+        window.addEventListener('orientationchange', function() {
+            // Перезапускаем камеру при изменении ориентации
+            setTimeout(() => {
+                if (availableCameras.length > 0 && html5QrCode) {
+                    restartScanner();
+                }
+            }, 300);
         });
     </script>
 </body>
