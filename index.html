@@ -271,7 +271,7 @@
         // Начинаем сканирование при загрузке страницы
         Html5Qrcode.getCameras().then(cameras => {
             if (cameras && cameras.length) {
-                const cameraId = cameras[0].id; // Используем заднюю камеру
+                const cameraId = cameras[1].id; // Используем заднюю камеру
                 
                 html5QrCode.start(
                     cameraId,
